@@ -94,14 +94,14 @@ Resumen_Provincias <- Protestas %>%
 #### Interfaz de usuario ####
 
 ui <- fluidPage(
-  titlePanel("🪧 Mapa de protestas sociales en Argentina"),
+  titlePanel("🪧 Mapa de la protesta social en Argentina"),
   tabsetPanel(
     tabPanel("Mapa",
              sidebarLayout(
                sidebarPanel(
                  dateRangeInput(
                    "dateRange",
-                   "Rango de Fechas",
+                   "Rango de fechas",
                    start = "2018-01-01",
                    end = "2023-10-31",
                    format = "dd-mm-yyyy"
@@ -117,8 +117,8 @@ ui <- fluidPage(
                  ))),
                  radioButtons(
                    "mapType",
-                   "Tipo de Mapa",
-                   choices = c("Mapa de Marcadores" = "markers", "Mapa de Calor" = "heat")
+                   "Tipo de mapa",
+                   choices = c("Mapa de marcadores" = "markers", "Mapa de calor" = "heat")
                  ),
                  
                  HTML(
@@ -129,6 +129,7 @@ ui <- fluidPage(
             <p>📅 Rango de fechas de protestas: 1 de enero de 2018 al 31 de octubre de 2023.</p>
             <p>✊ Cantidad de protestas registradas: 12.823.</p>
             <p> 💻 Aplicaci&oacute;n web <strong>no</strong> optimizada para tel&eacute;fonos celulares.</p>
+            <p>⌛ La app puede demorar algunos segundos en cargarse dada la complejidad de los procesos de análisis y cálculo que se ejecutan en el servidor.</p>
             <p>⚠️ CC By-NC-SA 4.0, María de los Ángeles Lasa.</p>'
                  )
                ),
@@ -572,7 +573,7 @@ server <- function(input, output, session) {
           l = 10,
           unit = "pt"
         ),
-        panel.spacing = unit(2, "lines")
+        panel.spacing = unit(1.5, "lines")
       )
     
     ggplotly(p, tooltip = "text", height = 700)
@@ -586,17 +587,17 @@ server <- function(input, output, session) {
     p_pcias <-
       ggplot(data, aes(
         x = reorder(provincia, porcentaje_pcia),
-        y = porcentaje_pcia,
+        y = protestas_pcia,
         fill = as.factor(year)
       )) +
-      geom_bar(stat = "identity") +
-      scale_y_continuous(limits = c(0, 30)) +
+      geom_bar(stat = "identity", width = 0.7) +
+      scale_y_continuous(limits = c(0, 600)) +
       labs(
         title = "Concentración de protestas por provincia",
-        subtitle = "Porcentajes sobre el total de observaciones registradas cada año",
+        subtitle = "Porcentajes sobre el total de observaciones registradas cada año \n",
         caption = "\n CC By-NC-SA 4.0 marialasa.ar",
         x = NULL,
-        y = NULL
+        y = "\n Cantidad de protestas",
       ) +
       coord_flip() +
       geom_text(aes(label = paste0(round(
@@ -606,11 +607,12 @@ server <- function(input, output, session) {
       theme(
         axis.text.y = element_text(size = 12),
         axis.text.x = element_text(size = 12),
+        axis.title.x = element_text(size = 14, face = "bold"),
         legend.position = "None",
         plot.title = element_text(
           face = "bold",
           colour = "#3C3C3C",
-          size = 20
+          size = 22
         ),
         plot.subtitle = element_text(colour = "#838383",
                                      size = 14),
@@ -644,6 +646,20 @@ server <- function(input, output, session) {
           "UNTRA"
         )
       ) %>%
+      mutate(
+        assoc_actor_1 = replace(
+          assoc_actor_1,
+          assoc_actor_1 == "CTEP: Confederation of Workers of the Popular Economy",
+          "CTEP"
+        )
+      ) %>%
+      mutate(
+        assoc_actor_1 = replace(
+          assoc_actor_1,
+          assoc_actor_1 == "UOCRA: Construction Workers' Union of Argentina",
+          "UOCRA"
+        )
+      ) %>%
       group_by(assoc_actor_1) %>%
       summarise(total_protests = n()) %>%
       mutate(percentage = (total_protests / sum(total_protests)) * 100) %>%
@@ -656,7 +672,7 @@ server <- function(input, output, session) {
         x = reorder(assoc_actor_1, total_protests),
         y = total_protests
       )) +
-      geom_bar(stat = "identity", fill = "#F8766D") +
+      geom_bar(stat = "identity", fill = "#F8766D", width = 0.7) +
       geom_text(
         aes(label = paste0(round(percentage, 2), "%")),
         hjust = -0.2,
@@ -664,10 +680,10 @@ server <- function(input, output, session) {
         size = 4
       ) +
       coord_flip() +
-      scale_y_continuous(expand = expansion(add = c(0, 200))) +
+      scale_y_continuous(expand = expansion(add = c(20, 200))) +
       labs(
         x = NULL,
-        y = "\n Cantidad de Protestas",
+        y = "\n Cantidad de protestas",
         title = "Actores más activos en protestas sociales",
         subtitle = "Top 20 anual \n",
         caption = "\n CC By-NC-SA 4.0 marialasa.ar"
@@ -678,10 +694,11 @@ server <- function(input, output, session) {
         legend.box = "vertical",
         axis.text.y = element_text(size = 12),
         axis.text.x = element_text(size = 12),
+        axis.title.x = element_text(size = 14, face = "bold"),
         plot.title = element_text(
           face = "bold",
           colour = "#3C3C3C",
-          size = 20
+          size = 22
         ),
         plot.subtitle = element_text(colour = "#838383",
                                      size = 14),
