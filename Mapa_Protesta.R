@@ -124,11 +124,12 @@ ui <- fluidPage(
                  HTML(
                    '<br>
             <h4>Sobre este proyecto</h4>
-            <p>👩‍💻 C&oacute;digo y desarrollo por <a href="http://marialasa.ar" target="_blank">Mar&iacute;a de los &Aacute;ngeles Lasa</a> con datos del <em>Armed Conflict Location and Event Data Project</em> (<a href="https://acleddata.com/data-export-tool/" target="_blank">ACLED</a>).</p>
+            <p>💜 Desarrollado por <a href="http://marialasa.ar" target="_blank">Mar&iacute;a de los &Aacute;ngeles Lasa</a> con datos del <em>Armed Conflict Location and Event Data Project</em> (<a href="https://acleddata.com/data-export-tool/" target="_blank">ACLED</a>).</p>
+            <p>👩‍💻 C&oacute;digo disponible en <a href="https://github.com/marialasa/mapa_protestas/blob/main/Mapa_Protesta.R" target="_blank">GitHub</a>.</p>
             <p>📅 Rango de fechas de protestas: 1 de enero de 2018 al 31 de octubre de 2023.</p>
             <p>✊ Cantidad de protestas registradas: 12.823.</p>
             <p>⚠️ CC By-NC-SA 4.0, María de los Ángeles Lasa.</p>'
-                 )
+                  )
                ),
                mainPanel(leafletOutput(
                  "map", width = "100%", height = "800px"
