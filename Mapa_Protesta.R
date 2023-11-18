@@ -108,11 +108,11 @@ ui <- fluidPage(
                  ),
                  selectInput(
                    "provinceInput",
-                   "Provincia",
+                   "Filtro específico por provincia/s",
                    choices = c(unique(Protestas$admin1)),
                    multiple = TRUE
                  ),
-                 selectInput("actorInput", "Convocantes", choices = c("Todos", unique(
+                 selectInput("actorInput", "Filtro específico por convocante", choices = c("Todos", unique(
                    Actores$assoc_actor_1
                  ))),
                  radioButtons(
@@ -128,8 +128,9 @@ ui <- fluidPage(
             <p>👩‍💻 C&oacute;digo disponible en <a href="https://github.com/marialasa/mapa_protestas/blob/main/Mapa_Protesta.R" target="_blank">GitHub</a>.</p>
             <p>📅 Rango de fechas de protestas: 1 de enero de 2018 al 31 de octubre de 2023.</p>
             <p>✊ Cantidad de protestas registradas: 12.823.</p>
+            <p> 💻 Aplicaci&oacute;n web <strong>no</strong> optimizada para tel&eacute;fonos celulares.</p>
             <p>⚠️ CC By-NC-SA 4.0, María de los Ángeles Lasa.</p>'
-                  )
+                 )
                ),
                mainPanel(leafletOutput(
                  "map", width = "100%", height = "800px"
