@@ -130,11 +130,11 @@ ui <- fluidPage(
             <p>✊ Cantidad de protestas registradas: 12.823.</p>
             <p> 💻 Aplicaci&oacute;n web <strong>no</strong> optimizada para tel&eacute;fonos celulares.</p>
             <p>⌛ La app puede demorar algunos segundos en cargarse dada la complejidad de los procesos de análisis y cálculo que se ejecutan en el servidor.</p>
-            <p>⚠️ CC By-NC-SA 4.0, María de los Ángeles Lasa.</p>'
+            <p>⚠️ CC By-NC-SA 4.0 María de los Ángeles Lasa.</p>'
                  )
                ),
                mainPanel(leafletOutput(
-                 "map", width = "100%", height = "800px"
+                 "map", width = "100%", height = "750px"
                ))
              )),
     tabPanel("Estadísticas",
@@ -730,7 +730,8 @@ server <- function(input, output, session) {
       list(
         src = image_path,
         alt = paste("Mapa LISA", input$yearInputHotspots),
-        width = "80%",
+        style = "margin-top: 20px;",
+        width = "75%",
         height = "auto"
       )
     }
