@@ -103,7 +103,7 @@ ui <- fluidPage(
                    "dateRange",
                    "Rango de fechas",
                    start = "2018-01-01",
-                   end = "2023-12-31",
+                   end = "2024-01-31",
                    format = "dd-mm-yyyy"
                  ),
                  selectInput(
@@ -126,8 +126,8 @@ ui <- fluidPage(
             <h4>Sobre este proyecto</h4>
             <p>💜 Desarrollado por <a href="http://marialasa.ar" target="_blank">Mar&iacute;a de los &Aacute;ngeles Lasa</a> con datos del <em>Armed Conflict Location and Event Data Project</em> (<a href="https://acleddata.com/data-export-tool/" target="_blank">ACLED</a>).</p>
             <p>👩‍💻 C&oacute;digo disponible en <a href="https://github.com/marialasa/mapa_protestas/blob/main/Mapa_Protesta.R" target="_blank">GitHub</a>.</p>
-            <p>📅 Rango de fechas de protestas: 1 de enero de 2018 - 31 de diciembre de 2023 con actualización mensual.</p>
-            <p>✊ Cantidad de protestas registradas: 13.083.</p>
+            <p>📅 Rango de fechas de protestas: 1 de enero de 2018 - 31 de enero de 2024 con actualización mensual.</p>
+            <p>✊ Cantidad de protestas registradas: 13.231.</p>
             <p> 💻 Aplicaci&oacute;n web <strong>no</strong> optimizada para tel&eacute;fonos celulares.</p>
             <p>⌛ La app puede demorar algunos segundos en cargarse dada la complejidad de los procesos de análisis y cálculo que se ejecutan en el servidor.</p>
             <p>⚠️ CC BY-NC-SA 4.0 María de los Ángeles Lasa.</p>'
@@ -140,7 +140,7 @@ ui <- fluidPage(
     tabPanel("Estadísticas",
              fluidRow(
                column(10,
-                      plotlyOutput("dailyProtestsPlot")),
+                      plotlyOutput("dailyProtestsPlot", height = "1000px")),
                column(
                  2,
                  tags$br(),
@@ -148,7 +148,7 @@ ui <- fluidPage(
                  selectInput(
                    "yearSelect",
                    "Seleccione un año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023")
+                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024")
                  ),
                  uiOutput("yearSpecificBoxes")
                )
@@ -162,7 +162,7 @@ ui <- fluidPage(
                  radioButtons(
                    "yearInputPcias",
                    "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023"),
+                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024"),
                    selected = "2018"
                  )
                ),
@@ -176,7 +176,7 @@ ui <- fluidPage(
                  radioButtons(
                    "yearInputActors",
                    "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023"),
+                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024"),
                    selected = "2018"
                  )
                ),
@@ -190,7 +190,7 @@ ui <- fluidPage(
                  radioButtons(
                    "yearInputHotspots",
                    "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023"),
+                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024"),
                    selected = "2018"
                  ),
                  HTML(
@@ -315,6 +315,14 @@ server <- function(input, output, session) {
              "protestas registradas")
   })
   
+  output$totalProtests2024 <- renderValueBox({
+    total_data <- total_protests_by_year()
+    total_for_year <-
+      total_data %>% filter(year == 2024) %>% pull(total_protests)
+    valueBox(total_for_year,
+             "protestas registradas")
+  })
+  
   average_protests_by_year <- reactive({
     Protestas %>%
       mutate(year = year(as.Date(event_date, format = "%Y-%m-%d"))) %>%
@@ -359,6 +367,11 @@ server <- function(input, output, session) {
              subtitle = "promedio protestas diarias")
   })
   
+  output$avgProtests2024 <- renderValueBox({
+    avg_data <- average_protests_by_year()
+    valueBox(value = round(avg_data[avg_data$year == 2024,]$avg_protests_per_day, 2),
+             subtitle = "promedio protestas diarias")
+  })
   
   output$mostCommonProtestMonthBox2018 <- renderValueBox({
     month <- Mes_Protestas$mes[Mes_Protestas$year == 2018]
@@ -396,6 +409,12 @@ server <- function(input, output, session) {
              subtitle = "mes con más protestas")
   })
   
+  output$mostCommonProtestMonthBox2024 <- renderValueBox({
+    month <- Mes_Protestas$mes[Mes_Protestas$year == 2024]
+    valueBox(value = month,
+             subtitle = "mes con más protestas")
+  })
+  
   output$mostCommonProtestDayBox2018 <- renderValueBox({
     day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2018]
     valueBox(value = day,
@@ -428,6 +447,12 @@ server <- function(input, output, session) {
   
   output$mostCommonProtestDayBox2023 <- renderValueBox({
     day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2023]
+    valueBox(value = day,
+             subtitle = "día más frecuente de protestas")
+  })
+  
+  output$mostCommonProtestDayBox2024 <- renderValueBox({
+    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2024]
     valueBox(value = day,
              subtitle = "día más frecuente de protestas")
   })
@@ -513,6 +538,19 @@ server <- function(input, output, session) {
       fluidRow(column(
         12, valueBoxOutput("mostCommonProtestDayBox2023")
       )))
+    } else if (year == "2024") {
+      tagList(fluidRow(column(
+        12, valueBoxOutput("totalProtests2024")
+      )),
+      fluidRow(column(
+        12, valueBoxOutput("avgProtests2024")
+      )),
+      fluidRow(column(
+        12, valueBoxOutput("mostCommonProtestMonthBox2024")
+      )),
+      fluidRow(column(
+        12, valueBoxOutput("mostCommonProtestDayBox2024")
+      )))
     }
   })
   
@@ -530,6 +568,7 @@ server <- function(input, output, session) {
     p <-
       ggplot(data, aes(x = Fecha, y = Cantidad_Protestas, group = Anio)) +
       geom_line(color = "#F8766D") +
+      facet_grid(rows = vars(Anio)) +
       facet_wrap(
         ~ Anio,
         scales = "free_x",
@@ -723,6 +762,7 @@ server <- function(input, output, session) {
       "2021" = "www/LISA_2021.png",
       "2022" = "www/LISA_2022.png",
       "2023" = "www/LISA_2023.png",
+      "2024" = "www/LISA_2024.png",
       NULL
     )
     
