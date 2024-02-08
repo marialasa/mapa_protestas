@@ -130,7 +130,7 @@ ui <- fluidPage(
             <p>✊ Cantidad de protestas registradas: 13.231.</p>
             <p> 💻 Aplicaci&oacute;n web <strong>no</strong> optimizada para tel&eacute;fonos celulares.</p>
             <p>⌛ La app puede demorar algunos segundos en cargarse dada la complejidad de los procesos de análisis y cálculo que se ejecutan en el servidor.</p>
-            <p>⚠️ CC BY-NC-SA 4.0 María de los Ángeles Lasa.</p>'
+            <p>⚠️ CC BY-NC-SA 4.0 María de los Ángeles Lasa</p>'
                  )
                ),
                mainPanel(leafletOutput(
