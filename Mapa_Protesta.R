@@ -103,11 +103,7 @@ ui <- fluidPage(
                    "dateRange",
                    "Rango de fechas",
                    start = "2018-01-01",
-<<<<<<< HEAD
                    end = "2024-02-29",
-=======
-                   end = "2024-01-31",
->>>>>>> 9aa03652e8120a441130dc0c29f83b9e36dda04b
                    format = "dd-mm-yyyy"
                  ),
                  selectInput(
@@ -130,13 +126,8 @@ ui <- fluidPage(
             <h4>Sobre este proyecto</h4>
             <p>💜 Desarrollado por <a href="http://marialasa.ar" target="_blank">Mar&iacute;a de los &Aacute;ngeles Lasa</a> con datos del <em>Armed Conflict Location and Event Data Project</em> (<a href="https://acleddata.com/data-export-tool/" target="_blank">ACLED</a>).</p>
             <p>👩‍💻 C&oacute;digo disponible en <a href="https://github.com/marialasa/mapa_protestas/blob/main/Mapa_Protesta.R" target="_blank">GitHub</a>.</p>
-<<<<<<< HEAD
             <p>📅 Rango de fechas de protestas: 1 de enero de 2018 - 29 de febrero de 2024 con actualización mensual.</p>
             <p>✊ Cantidad de protestas registradas: 13.349</p>
-=======
-            <p>📅 Rango de fechas de protestas: 1 de enero de 2018 - 31 de enero de 2024 con actualización mensual.</p>
-            <p>✊ Cantidad de protestas registradas: 13.231.</p>
->>>>>>> 9aa03652e8120a441130dc0c29f83b9e36dda04b
             <p> 💻 Aplicaci&oacute;n web <strong>no</strong> optimizada para tel&eacute;fonos celulares.</p>
             <p>⌛ La app puede demorar algunos segundos en cargarse dada la complejidad de los procesos de análisis y cálculo que se ejecutan en el servidor.</p>
             <p>⚠️ CC BY-NC-SA 4.0 María de los Ángeles Lasa.</p>'
@@ -276,61 +267,7 @@ server <- function(input, output, session) {
     })
   }
   
-  output$totalProtests2018 <- renderValueBox({
-    total_data <- total_protests_by_year()
-    total_for_year <-
-      total_data %>% filter(year == 2018) %>% pull(total_protests)
-    valueBox(total_for_year,
-             "protestas registradas")
-  })
-  
-  output$totalProtests2019 <- renderValueBox({
-    total_data <- total_protests_by_year()
-    total_for_year <-
-      total_data %>% filter(year == 2019) %>% pull(total_protests)
-    valueBox(total_for_year,
-             "protestas registradas")
-  })
-  
-  output$totalProtests2020 <- renderValueBox({
-    total_data <- total_protests_by_year()
-    total_for_year <-
-      total_data %>% filter(year == 2020) %>% pull(total_protests)
-    valueBox(total_for_year,
-             "protestas registradas")
-  })
-  
-  output$totalProtests2021 <- renderValueBox({
-    total_data <- total_protests_by_year()
-    total_for_year <-
-      total_data %>% filter(year == 2021) %>% pull(total_protests)
-    valueBox(total_for_year,
-             "protestas registradas")
-  })
-  
-  output$totalProtests2022 <- renderValueBox({
-    total_data <- total_protests_by_year()
-    total_for_year <-
-      total_data %>% filter(year == 2022) %>% pull(total_protests)
-    valueBox(total_for_year,
-             "protestas registradas")
-  })
-  
-  output$totalProtests2023 <- renderValueBox({
-    total_data <- total_protests_by_year()
-    total_for_year <-
-      total_data %>% filter(year == 2023) %>% pull(total_protests)
-    valueBox(total_for_year,
-             "protestas registradas")
-  })
-  
-  output$totalProtests2024 <- renderValueBox({
-    total_data <- total_protests_by_year()
-    total_for_year <-
-      total_data %>% filter(year == 2024) %>% pull(total_protests)
-    valueBox(total_for_year,
-             "protestas registradas")
-  })
+
   
   average_protests_by_year <- reactive({
     Protestas %>%
