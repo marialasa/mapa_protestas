@@ -645,6 +645,27 @@ server <- function(input, output, session) {
           "UOCRA"
         )
       ) %>%
+      mutate(
+        assoc_actor_1 = replace(
+          assoc_actor_1,
+          assoc_actor_1 == "CTERA: Confederation of Education Workers of the Republic of Argentina",
+          "CTERA"
+        )
+      ) %>%
+      mutate(
+        assoc_actor_1 = replace(
+          assoc_actor_1,
+          assoc_actor_1 == "CTA-A: Argentine Workers' Central Union - Autonomous",
+          "CTA Autonomous"
+        )
+      ) %>%
+      mutate(
+        assoc_actor_1 = replace(
+          assoc_actor_1,
+          assoc_actor_1 == "UTEP: Union of Workers of the Popular Economy",
+          "UTEP"
+        )
+      ) %>%
       group_by(assoc_actor_1) %>%
       summarise(total_protests = n()) %>%
       mutate(percentage = (total_protests / sum(total_protests)) * 100) %>%
