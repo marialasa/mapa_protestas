@@ -103,7 +103,7 @@ ui <- fluidPage(
                    "dateRange",
                    "Rango de fechas",
                    start = "2018-01-01",
-                   end = "2024-05-31",
+                   end = "2025-05-31",
                    format = "dd-mm-yyyy"
                  ),
                  selectInput(
@@ -126,11 +126,11 @@ ui <- fluidPage(
             <h4>Sobre este proyecto</h4>
             <p>💜 Desarrollado por <a href="http://marialasa.ar" target="_blank">Mar&iacute;a de los &Aacute;ngeles Lasa</a> con datos del <em>Armed Conflict Location and Event Data Project</em> (<a href="https://acleddata.com/data-export-tool/" target="_blank">ACLED</a>).</p>
             <p>👩‍💻 C&oacute;digo disponible en <a href="https://github.com/marialasa/mapa_protestas/blob/main/Mapa_Protesta.R" target="_blank">GitHub</a>.</p>
-            <p>📅 Rango de fechas de protestas: 1 de enero de 2018 - 31 de mayo de 2024 con actualización mensual.</p>
-            <p>✊ Cantidad de protestas registradas: 13.749.</p>
+            <p>📅 Rango de fechas de protestas: 1 de enero de 2018 - 31 de mayo de 2025 con actualización mensual.</p>
+            <p>✊ Cantidad de protestas registradas: 15.157.</p>
             <p> 💻 Aplicaci&oacute;n web <strong>no</strong> optimizada para tel&eacute;fonos celulares.</p>
             <p>⌛ La app puede demorar algunos segundos en cargarse dada la complejidad de los procesos de análisis y cálculo que se ejecutan en el servidor.</p>
-            <p>⚠️ CC BY-NC-SA 4.0 María de los Ángeles Lasa.</p>'
+            <p>⚠️ CC BY-NC-SA 4.0</p>'
                  )
                ),
                mainPanel(leafletOutput(
@@ -148,7 +148,7 @@ ui <- fluidPage(
                  selectInput(
                    "yearSelect",
                    "Seleccione un año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024")
+                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025")
                  ),
                  uiOutput("yearSpecificBoxes")
                )
@@ -162,7 +162,7 @@ ui <- fluidPage(
                  radioButtons(
                    "yearInputPcias",
                    "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024"),
+                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"),
                    selected = "2018"
                  )
                ),
@@ -176,7 +176,7 @@ ui <- fluidPage(
                  radioButtons(
                    "yearInputActors",
                    "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024"),
+                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"),
                    selected = "2018"
                  )
                ),
@@ -190,7 +190,7 @@ ui <- fluidPage(
                  radioButtons(
                    "yearInputHotspots",
                    "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024"),
+                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"),
                    selected = "2018"
                  ),
                  HTML(
@@ -223,6 +223,10 @@ server <- function(input, output, session) {
       }
     }
     
+    data <- data %>%
+      separate_rows(assoc_actor_1, sep = "; ") %>%
+      mutate(assoc_actor_1 = trimws(assoc_actor_1))
+    
     if (!is.null(input$actorInput) && input$actorInput != "Todos") {
       data <- data %>% filter(assoc_actor_1 == input$actorInput)
     }
@@ -241,11 +245,12 @@ server <- function(input, output, session) {
       )
     } else {
       map %>% addHeatmap(
-        ~ longitude,
-        ~ latitude,
-        intensity = ~ 1,
-        blur = 20,
-        radius = 15
+        lng = ~longitude,
+        lat = ~latitude,
+        blur = 15,
+        radius = 20,
+        max = 0.3,
+        gradient = colorRampPalette(c("blue", "cyan", "yellow", "red"))(10)
       )
     }
   })
@@ -266,8 +271,6 @@ server <- function(input, output, session) {
                paste("protestas registradas en", year))
     })
   }
-  
-
   
   average_protests_by_year <- reactive({
     Protestas %>%
@@ -319,6 +322,12 @@ server <- function(input, output, session) {
              subtitle = "promedio protestas diarias")
   })
   
+  output$avgProtests2025 <- renderValueBox({
+    avg_data <- average_protests_by_year()
+    valueBox(value = round(avg_data[avg_data$year == 2025,]$avg_protests_per_day, 2),
+             subtitle = "promedio protestas diarias")
+  })
+  
   output$mostCommonProtestMonthBox2018 <- renderValueBox({
     month <- Mes_Protestas$mes[Mes_Protestas$year == 2018]
     valueBox(value = month,
@@ -361,6 +370,12 @@ server <- function(input, output, session) {
              subtitle = "mes con más protestas")
   })
   
+  output$mostCommonProtestMonthBox2025 <- renderValueBox({
+    month <- Mes_Protestas$mes[Mes_Protestas$year == 2025]
+    valueBox(value = month,
+             subtitle = "mes con más protestas")
+  })
+  
   output$mostCommonProtestDayBox2018 <- renderValueBox({
     day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2018]
     valueBox(value = day,
@@ -399,6 +414,12 @@ server <- function(input, output, session) {
   
   output$mostCommonProtestDayBox2024 <- renderValueBox({
     day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2024]
+    valueBox(value = day,
+             subtitle = "día más frecuente de protestas")
+  })
+  
+  output$mostCommonProtestDayBox2025 <- renderValueBox({
+    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2025]
     valueBox(value = day,
              subtitle = "día más frecuente de protestas")
   })
@@ -496,6 +517,19 @@ server <- function(input, output, session) {
       )),
       fluidRow(column(
         12, valueBoxOutput("mostCommonProtestDayBox2024")
+      )))
+    } else if (year == "2025") {
+      tagList(fluidRow(column(
+        12, valueBoxOutput("totalProtests2025")
+      )),
+      fluidRow(column(
+        12, valueBoxOutput("avgProtests2025")
+      )),
+      fluidRow(column(
+        12, valueBoxOutput("mostCommonProtestMonthBox2025")
+      )),
+      fluidRow(column(
+        12, valueBoxOutput("mostCommonProtestDayBox2025")
       )))
     }
   })
@@ -730,6 +764,7 @@ server <- function(input, output, session) {
       "2022" = "www/LISA_2022.png",
       "2023" = "www/LISA_2023.png",
       "2024" = "www/LISA_2024.png",
+      "2025" = "www/LISA_2025.png",
       NULL
     )
     
