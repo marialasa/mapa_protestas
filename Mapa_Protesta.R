@@ -1,5 +1,9 @@
-#### Librerías ####
+############################################################
+# Social Protest Map in Argentina (ACLED) — Shiny App
+# https://marialasa.shinyapps.io/Mapa_ProtestaSocial/
+############################################################
 
+#### Libraries ####
 library(shiny)
 library(leaflet)
 library(leaflet.extras)
@@ -9,20 +13,33 @@ library(lubridate)
 library(ggplot2)
 library(plotly)
 library(shinydashboard)
-library(grid)
 
-#### Carga y transformación de datos ####
+#### Data loading ####
+# Expected file: Argentina_ACLED.csv in the working directory
+# Expected columns (at minimum): event_date, latitude, longitude, admin1, notes, assoc_actor_1
+Protestas <- read.csv("Argentina_ACLED.csv", stringsAsFactors = FALSE)
 
-Protestas <- read.csv("Argentina_ACLED.csv")
+#### Date parsing (robust) ####
+# ACLED exports often provide event_date like "01 January 2018".
+# This parsing can fail if OS locale is not English; we include a fallback.
+Protestas$event_date_parsed <- as.Date(Protestas$event_date, format = "%d %B %Y")
 
-Protestas$fecha_date <-
-  as.Date(Protestas$event_date, format = "%d %B %Y")
+# Fallback: if parsing failed completely (e.g., event_date already in ISO "YYYY-MM-DD")
+if (all(is.na(Protestas$event_date_parsed))) {
+  Protestas$event_date_parsed <- as.Date(Protestas$event_date)
+}
 
-Protestas$dia_semana <- weekdays(Protestas$fecha_date)
+# Canonical date + derived time fields
+Protestas <- Protestas %>%
+  mutate(
+    event_date = event_date_parsed,
+    year = lubridate::year(event_date),
+    weekday_en = weekdays(event_date),
+    month_en = format(event_date, "%B")
+  )
 
-Protestas$mes <- format(as.Date(Protestas$fecha_date), "%B")
-
-dias <- c(
+#### Translate weekday/month to Spanish + ordered factors ####
+days_map <- c(
   "Monday" = "Lunes",
   "Tuesday" = "Martes",
   "Wednesday" = "Miércoles",
@@ -32,7 +49,7 @@ dias <- c(
   "Sunday" = "Domingo"
 )
 
-meses <- c(
+months_map <- c(
   "January" = "Enero",
   "February" = "Febrero",
   "March" = "Marzo",
@@ -47,196 +64,239 @@ meses <- c(
   "December" = "Diciembre"
 )
 
+weekday_levels <- c("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
+month_levels <- c("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+
 Protestas <- Protestas %>%
   mutate(
-    dia_semana = recode(dia_semana,!!!dias),
-    dia_semana = factor(dia_semana),
-    mes = recode(mes,!!!meses),
-    mes = factor(mes)
+    weekday_es = dplyr::recode(weekday_en, !!!days_map),
+    month_es = dplyr::recode(month_en, !!!months_map),
+    dia_semana = factor(weekday_es, levels = weekday_levels),
+    mes = factor(month_es, levels = month_levels)
   )
 
-Actores <- Protestas %>%
-  separate_rows(assoc_actor_1, sep = "; ") %>%
+#### Precompute exploded actor dataset (performance improvement) ####
+# assoc_actor_1 can contain multiple actors separated by "; "
+# We explode it once and reuse everywhere (map filters, actor plots, etc.)
+Protestas_actores <- Protestas %>%
+  tidyr::separate_rows(assoc_actor_1, sep = ";\\s*") %>%
   mutate(
     assoc_actor_1 = trimws(assoc_actor_1),
-    assoc_actor_1 = if_else(assoc_actor_1 == "", "Self-Organized Protesters", assoc_actor_1)
-  ) %>%
+    assoc_actor_1 = if_else(is.na(assoc_actor_1) | assoc_actor_1 == "",
+                            "Self-Organized Protesters",
+                            assoc_actor_1)
+  )
+
+#### Actor summary table (year, actor) ####
+Actores <- Protestas_actores %>%
   group_by(year, assoc_actor_1) %>%
   summarise(total_protests = n(), .groups = "drop") %>%
+  group_by(year) %>%
   mutate(percentage = (total_protests / sum(total_protests)) * 100) %>%
+  ungroup() %>%
   arrange(desc(total_protests))
 
-Protestas <- Protestas %>%
-  mutate(event_date = as.Date(event_date, format = "%d %B %Y"),
-         year = year(event_date))
-
+#### Most frequent weekday/month by year ####
 Dias_Protestas <- Protestas %>%
-  group_by(year, dia_semana) %>%
-  summarise(cantidad_protestas = n()) %>%
-  slice(which.max(cantidad_protestas))
+  count(year, dia_semana, name = "cantidad_protestas") %>%
+  group_by(year) %>%
+  slice_max(cantidad_protestas, n = 1, with_ties = FALSE) %>%
+  ungroup()
 
 Mes_Protestas <- Protestas %>%
-  group_by(year, mes) %>%
-  summarise(cantidad_protestas = n(), .groups = 'keep') %>%
+  count(year, mes, name = "cantidad_protestas") %>%
   group_by(year) %>%
-  slice(which.max(cantidad_protestas))
+  slice_max(cantidad_protestas, n = 1, with_ties = FALSE) %>%
+  ungroup()
 
+#### Province summary (share of yearly protests) ####
 Resumen_Provincias <- Protestas %>%
+  filter(!is.na(year), !is.na(admin1)) %>%
   group_by(year, admin1) %>%
-  summarize(protestas_pcia = n()) %>%
-  ungroup() %>%
+  summarise(protestas_pcia = n(), .groups = "drop") %>%
   group_by(year) %>%
-  mutate(total_protestas = sum(protestas_pcia)) %>%
-  mutate(porcentaje_pcia = (protestas_pcia / total_protestas) * 100) %>%
+  mutate(total_protestas = sum(protestas_pcia),
+         porcentaje_pcia = (protestas_pcia / total_protestas) * 100) %>%
+  ungroup() %>%
   mutate(admin1 = ifelse(admin1 == "Ciudad Autonoma de Buenos Aires", "CABA", admin1)) %>%
   rename(provincia = admin1)
 
-#### Interfaz de usuario ####
+#### Helper: actor label shortening for plotting ####
+shorten_actor_names <- function(x) {
+  x <- ifelse(x == "", "Self-Organized Protesters", x)
+  x <- ifelse(x == "UNTRA: National Union of Transport and Allied Workers of the Republic of Argentina", "UNTRA", x)
+  x <- ifelse(x == "CTEP: Confederation of Workers of the Popular Economy", "CTEP", x)
+  x <- ifelse(x == "UOCRA: Construction Workers' Union of Argentina", "UOCRA", x)
+  x <- ifelse(x == "CTERA: Confederation of Education Workers of the Republic of Argentina", "CTERA", x)
+  x <- ifelse(x == "CTA-A: Argentine Workers' Central Union - Autonomous", "CTA Autonomous", x)
+  x <- ifelse(x == "UTEP: Union of Workers of the Popular Economy", "UTEP", x)
+  x
+}
 
+#### UI ####
 ui <- fluidPage(
-  titlePanel("🪧 Mapa de la protesta social en Argentina"),
+  titlePanel("🪧 Social Protest Map in Argentina"),
   tabsetPanel(
-    tabPanel("Mapa",
-             sidebarLayout(
-               sidebarPanel(
-                 dateRangeInput(
-                   "dateRange",
-                   "Rango de fechas",
-                   start = "2018-01-01",
-                   end = "2025-05-31",
-                   format = "dd-mm-yyyy"
-                 ),
-                 selectInput(
-                   "provinceInput",
-                   "Filtro específico por provincia/s",
-                   choices = c(unique(Protestas$admin1)),
-                   multiple = TRUE
-                 ),
-                 selectInput("actorInput", "Filtro específico por convocante", choices = c("Todos", unique(
-                   Actores$assoc_actor_1
-                 ))),
-                 radioButtons(
-                   "mapType",
-                   "Tipo de mapa",
-                   choices = c("Mapa de marcadores" = "markers", "Mapa de calor" = "heat")
-                 ),
-                 
-                 HTML(
-                   '<br>
-            <h4>Sobre este proyecto</h4>
-            <p>💜 Desarrollado por <a href="http://marialasa.ar" target="_blank">Mar&iacute;a de los &Aacute;ngeles Lasa</a> con datos del <em>Armed Conflict Location and Event Data Project</em> (<a href="https://acleddata.com/data-export-tool/" target="_blank">ACLED</a>).</p>
-            <p>👩‍💻 C&oacute;digo disponible en <a href="https://github.com/marialasa/mapa_protestas/blob/main/Mapa_Protesta.R" target="_blank">GitHub</a>.</p>
-            <p>📅 Rango de fechas de protestas: 1 de enero de 2018 - 31 de mayo de 2025 con actualización mensual.</p>
-            <p>✊ Cantidad de protestas registradas: 15.157.</p>
-            <p> 💻 Aplicaci&oacute;n web <strong>no</strong> optimizada para tel&eacute;fonos celulares.</p>
-            <p>⌛ La app puede demorar algunos segundos en cargarse dada la complejidad de los procesos de análisis y cálculo que se ejecutan en el servidor.</p>
-            <p>⚠️ CC BY-NC-SA 4.0</p>'
-                 )
-               ),
-               mainPanel(leafletOutput(
-                 "map", width = "100%", height = "750px"
-               ))
-             )),
-    tabPanel("Estadísticas",
-             fluidRow(
-               column(10,
-                      plotlyOutput("dailyProtestsPlot", height = "1000px")),
-               column(
-                 2,
-                 tags$br(),
-                 tags$br(),
-                 selectInput(
-                   "yearSelect",
-                   "Seleccione un año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025")
-                 ),
-                 uiOutput("yearSpecificBoxes")
-               )
-             ),
-             tags$style(
-               HTML(".value-box { border: 1px solid #333; }")
-             )),
-    tabPanel("Provincias",
-             sidebarLayout(
-               sidebarPanel(
-                 radioButtons(
-                   "yearInputPcias",
-                   "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"),
-                   selected = "2018"
-                 )
-               ),
-               mainPanel(fluidRow(column(
-                 12, plotOutput("provinciaPlot", width = "80%", height = "600px")
-               )))
-             )),
-    tabPanel("Actores",
-             sidebarLayout(
-               sidebarPanel(
-                 radioButtons(
-                   "yearInputActors",
-                   "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"),
-                   selected = "2018"
-                 )
-               ),
-               mainPanel(plotOutput(
-                 "plotActores", width = "80%", height = "600px"
-               ))
-             )),
-    tabPanel("Hotspots",
-             sidebarLayout(
-               sidebarPanel(
-                 radioButtons(
-                   "yearInputHotspots",
-                   "Seleccione el año",
-                   choices = c("2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"),
-                   selected = "2018"
-                 ),
-                 HTML(
-                   '<br>
-            <h4>Nota</h4>
-            <p>🗺️ Los mapas de <em>hotspots</em> fueron desarrollados utilizando el análisis de <em>Local Indicators of Spatial Association</em> (LISA), un método estadístico empleado para identificar patrones espaciales y detectar áreas con características significativamente similares o diferentes dentro de un contexto geográfico.</p>
-            <p>👉 Para acceder a una explicación detallada sobre la metodología empleada, <a href="https://rpubs.com/mlasa/lacallehabla" target="_blank">clic aquí</a>.</p>'
-                 )
-               ),
-               mainPanel(imageOutput("dynamicImage"))
-             ))
+    tabPanel(
+      "Map",
+      sidebarLayout(
+        sidebarPanel(
+          dateRangeInput(
+            "dateRange",
+            "Date range",
+            start = "2018-01-01",
+            end = "2025-05-31",
+            format = "dd-mm-yyyy"
+          ),
+          selectInput(
+            "provinceInput",
+            "Filter by province(s)",
+            choices = sort(unique(Protestas$admin1)),
+            multiple = TRUE
+          ),
+          selectInput(
+            "actorInput",
+            "Filter by convener (assoc_actor_1)",
+            choices = c("All", sort(unique(Actores$assoc_actor_1))),
+            selected = "All"
+          ),
+          radioButtons(
+            "mapType",
+            "Map type",
+            choices = c("Marker map" = "markers", "Heat map" = "heat"),
+            selected = "markers"
+          ),
+          HTML(
+            '<br>
+            <h4>About this project</h4>
+            <p>💜 Developed by <a href="http://marialasa.ar" target="_blank">Mar&iacute;a de los &Aacute;ngeles Lasa</a> using data from the <em>Armed Conflict Location and Event Data Project</em> (<a href="https://acleddata.com/data-export-tool/" target="_blank">ACLED</a>).</p>
+            <p>👩‍💻 Code on <a href="https://github.com/marialasa/mapa_protestas/blob/main/Mapa_Protesta.R" target="_blank">GitHub</a>.</p>
+            <p>📅 Protest date range: 2018-01-01 to 2025-05-31 (monthly updates).</p>
+            <p>💻 Web app is <strong>not</strong> optimized for mobile.</p>
+            <p>⌛ The app may take a few seconds to load due to server-side processing.</p>
+            <p>⚠️ License: CC BY-NC-SA 4.0</p>'
+          )
+        ),
+        mainPanel(
+          leafletOutput("map", width = "100%", height = "750px")
+        )
+      )
+    ),
+
+    tabPanel(
+      "Statistics",
+      fluidRow(
+        column(10, plotlyOutput("dailyProtestsPlot", height = "1000px")),
+        column(
+          2,
+          tags$br(), tags$br(),
+          selectInput(
+            "yearSelect",
+            "Select a year",
+            choices = as.character(2018:2025),
+            selected = "2018"
+          ),
+          uiOutput("yearSpecificBoxes")
+        )
+      ),
+      tags$style(HTML(".value-box { border: 1px solid #333; }"))
+    ),
+
+    tabPanel(
+      "Provinces",
+      sidebarLayout(
+        sidebarPanel(
+          radioButtons(
+            "yearInputPcias",
+            "Select year",
+            choices = as.character(2018:2025),
+            selected = "2018"
+          )
+        ),
+        mainPanel(
+          fluidRow(column(12, plotOutput("provinciaPlot", width = "80%", height = "600px")))
+        )
+      )
+    ),
+
+    tabPanel(
+      "Actors",
+      sidebarLayout(
+        sidebarPanel(
+          radioButtons(
+            "yearInputActors",
+            "Select year",
+            choices = as.character(2018:2025),
+            selected = "2018"
+          )
+        ),
+        mainPanel(
+          plotOutput("plotActores", width = "80%", height = "600px")
+        )
+      )
+    ),
+
+    tabPanel(
+      "Hotspots",
+      sidebarLayout(
+        sidebarPanel(
+          radioButtons(
+            "yearInputHotspots",
+            "Select year",
+            choices = as.character(2018:2025),
+            selected = "2018"
+          ),
+          HTML(
+            '<br>
+            <h4>Note</h4>
+            <p>🗺️ The <em>hotspot</em> maps were produced using <em>Local Indicators of Spatial Association</em> (LISA),
+            a statistical method to identify spatial clusters and outliers.</p>
+            <p>👉 For a detailed methodology explanation, <a href="https://rpubs.com/mlasa/lacallehabla" target="_blank">click here</a>.</p>'
+          )
+        ),
+        mainPanel(
+          imageOutput("dynamicImage")
+        )
+      )
+    )
   )
 )
 
 #### Server ####
-
 server <- function(input, output, session) {
+
+  #### MAP ####
   output$map <- renderLeaflet({
-    data <- Protestas
-    
+    data <- Protestas_actores
+
+    # Filter by date range (canonical event_date)
     if (!is.null(input$dateRange)) {
-      data <-
-        data %>% filter(event_date >= input$dateRange[1] &
-                          event_date <= input$dateRange[2])
+      data <- data %>%
+        filter(!is.na(event_date)) %>%
+        filter(event_date >= input$dateRange[1], event_date <= input$dateRange[2])
     }
-    
-    if (!is.null(input$provinceInput)) {
-      if (!"Todos" %in% input$provinceInput) {
-        data <- data %>% filter(admin1 %in% input$provinceInput)
-      }
+
+    # Filter by province
+    if (!is.null(input$provinceInput) && length(input$provinceInput) > 0) {
+      data <- data %>% filter(admin1 %in% input$provinceInput)
     }
-    
-    data <- data %>%
-      separate_rows(assoc_actor_1, sep = "; ") %>%
-      mutate(assoc_actor_1 = trimws(assoc_actor_1))
-    
-    if (!is.null(input$actorInput) && input$actorInput != "Todos") {
+
+    # Filter by actor
+    if (!is.null(input$actorInput) && input$actorInput != "All") {
       data <- data %>% filter(assoc_actor_1 == input$actorInput)
     }
-    
+
+    # Basic sanity filter for coordinates
+    data <- data %>% filter(!is.na(latitude), !is.na(longitude))
+
     map <- leaflet(data) %>% addTiles()
+
     if (input$mapType == "markers") {
       map %>% addMarkers(
-        lng = ~ longitude,
-        lat = ~ latitude,
-        popup = ~ notes,
+        lng = ~longitude,
+        lat = ~latitude,
+        popup = ~notes,
         clusterOptions = markerClusterOptions(
           spiderfyOnMaxZoom = TRUE,
           showCoverageOnHover = TRUE,
@@ -254,506 +314,215 @@ server <- function(input, output, session) {
       )
     }
   })
-  
+
+  #### Yearly totals (for totalProtestsYYYY boxes) ####
   total_protests_by_year <- reactive({
     Protestas %>%
-      group_by(year) %>%
-      summarise(total_protests = n(), .groups = 'drop')
+      filter(!is.na(year)) %>%
+      count(year, name = "total_protests")
   })
-  
-  renderTotalProtestsBox <- function(year) {
-    total_data <- total_protests_by_year()
-    total_for_year <-
-      total_data %>% filter(year == year) %>% pull(total_protests)
-    
+
+  renderTotalProtestsBox <- function(y) {
     renderValueBox({
-      valueBox(total_for_year,
-               paste("protestas registradas en", year))
+      totals <- total_protests_by_year()
+      v <- totals %>% filter(year == y) %>% pull(total_protests)
+      if (length(v) == 0) v <- 0
+      valueBox(value = v, subtitle = paste("protests recorded in", y))
     })
   }
-  
+
+  # Create output$totalProtests2018 ... output$totalProtests2025
+  for (y in 2018:2025) {
+    local({
+      yy <- y
+      output[[paste0("totalProtests", yy)]] <- renderTotalProtestsBox(yy)
+    })
+  }
+
+  #### Average protests/day by year (uses observed days, handles partial years) ####
   average_protests_by_year <- reactive({
     Protestas %>%
-      mutate(year = year(as.Date(event_date, format = "%Y-%m-%d"))) %>%
+      filter(!is.na(event_date), !is.na(year)) %>%
       group_by(year) %>%
-      summarise(avg_protests_per_day = n() / 365)
+      summarise(
+        total_protests = n(),
+        observed_days = n_distinct(event_date),
+        avg_protests_per_day = total_protests / observed_days,
+        .groups = "drop"
+      )
   })
-  
-  output$avgProtests2018 <- renderValueBox({
-    avg_data <- average_protests_by_year()
-    valueBox(value = round(avg_data[avg_data$year == 2018,]$avg_protests_per_day, 2),
-             subtitle = "promedio protestas diarias")
-  })
-  
-  output$avgProtests2019 <- renderValueBox({
-    avg_data <- average_protests_by_year()
-    valueBox(value = round(avg_data[avg_data$year == 2019,]$avg_protests_per_day, 2),
-             subtitle = "promedio protestas diarias")
-  })
-  
-  
-  output$avgProtests2020 <- renderValueBox({
-    avg_data <- average_protests_by_year()
-    valueBox(value = round(avg_data[avg_data$year == 2020,]$avg_protests_per_day, 2),
-             subtitle = "promedio protestas diarias")
-  })
-  
-  output$avgProtests2021 <- renderValueBox({
-    avg_data <- average_protests_by_year()
-    valueBox(value = round(avg_data[avg_data$year == 2021,]$avg_protests_per_day, 2),
-             subtitle = "promedio protestas diarias")
-  })
-  
-  output$avgProtests2022 <- renderValueBox({
-    avg_data <- average_protests_by_year()
-    valueBox(value = round(avg_data[avg_data$year == 2022,]$avg_protests_per_day, 2),
-             subtitle = "promedio protestas diarias")
-  })
-  
-  output$avgProtests2023 <- renderValueBox({
-    avg_data <- average_protests_by_year()
-    valueBox(value = round(avg_data[avg_data$year == 2023,]$avg_protests_per_day, 2),
-             subtitle = "promedio protestas diarias")
-  })
-  
-  output$avgProtests2024 <- renderValueBox({
-    avg_data <- average_protests_by_year()
-    valueBox(value = round(avg_data[avg_data$year == 2024,]$avg_protests_per_day, 2),
-             subtitle = "promedio protestas diarias")
-  })
-  
-  output$avgProtests2025 <- renderValueBox({
-    avg_data <- average_protests_by_year()
-    valueBox(value = round(avg_data[avg_data$year == 2025,]$avg_protests_per_day, 2),
-             subtitle = "promedio protestas diarias")
-  })
-  
-  output$mostCommonProtestMonthBox2018 <- renderValueBox({
-    month <- Mes_Protestas$mes[Mes_Protestas$year == 2018]
-    valueBox(value = month,
-             subtitle = "mes con más protestas")
-  })
-  
-  output$mostCommonProtestMonthBox2019 <- renderValueBox({
-    month <- Mes_Protestas$mes[Mes_Protestas$year == 2019]
-    valueBox(value = month,
-             subtitle = "mes con más protestas")
-  })
-  
-  output$mostCommonProtestMonthBox2020 <- renderValueBox({
-    month <- Mes_Protestas$mes[Mes_Protestas$year == 2020]
-    valueBox(value = month,
-             subtitle = "mes con más protestas")
-  })
-  
-  output$mostCommonProtestMonthBox2021 <- renderValueBox({
-    month <- Mes_Protestas$mes[Mes_Protestas$year == 2021]
-    valueBox(value = month,
-             subtitle = "mes con más protestas")
-  })
-  
-  output$mostCommonProtestMonthBox2022 <- renderValueBox({
-    month <- Mes_Protestas$mes[Mes_Protestas$year == 2022]
-    valueBox(value = month,
-             subtitle = "mes con más protestas")
-  })
-  
-  output$mostCommonProtestMonthBox2023 <- renderValueBox({
-    month <- Mes_Protestas$mes[Mes_Protestas$year == 2023]
-    valueBox(value = month,
-             subtitle = "mes con más protestas")
-  })
-  
-  output$mostCommonProtestMonthBox2024 <- renderValueBox({
-    month <- Mes_Protestas$mes[Mes_Protestas$year == 2024]
-    valueBox(value = month,
-             subtitle = "mes con más protestas")
-  })
-  
-  output$mostCommonProtestMonthBox2025 <- renderValueBox({
-    month <- Mes_Protestas$mes[Mes_Protestas$year == 2025]
-    valueBox(value = month,
-             subtitle = "mes con más protestas")
-  })
-  
-  output$mostCommonProtestDayBox2018 <- renderValueBox({
-    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2018]
-    valueBox(value = day,
-             subtitle = "día más frecuente de protestas")
-  })
-  
-  output$mostCommonProtestDayBox2019 <- renderValueBox({
-    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2019]
-    valueBox(value = day,
-             subtitle = "día más frecuente de protestas")
-  })
-  
-  output$mostCommonProtestDayBox2020 <- renderValueBox({
-    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2020]
-    valueBox(value = day,
-             subtitle = "día más frecuente de protestas")
-  })
-  
-  output$mostCommonProtestDayBox2021 <- renderValueBox({
-    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2021]
-    valueBox(value = day,
-             subtitle = "día más frecuente de protestas")
-  })
-  
-  output$mostCommonProtestDayBox2022 <- renderValueBox({
-    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2022]
-    valueBox(value = day,
-             subtitle = "día más frecuente de protestas")
-  })
-  
-  output$mostCommonProtestDayBox2023 <- renderValueBox({
-    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2023]
-    valueBox(value = day,
-             subtitle = "día más frecuente de protestas")
-  })
-  
-  output$mostCommonProtestDayBox2024 <- renderValueBox({
-    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2024]
-    valueBox(value = day,
-             subtitle = "día más frecuente de protestas")
-  })
-  
-  output$mostCommonProtestDayBox2025 <- renderValueBox({
-    day <- Dias_Protestas$dia_semana[Dias_Protestas$year == 2025]
-    valueBox(value = day,
-             subtitle = "día más frecuente de protestas")
-  })
-  
+
+  renderAvgBox <- function(y) {
+    renderValueBox({
+      avg_data <- average_protests_by_year()
+      v <- avg_data %>% filter(year == y) %>% pull(avg_protests_per_day)
+      if (length(v) == 0) v <- 0
+      valueBox(value = round(v, 2), subtitle = "average protests per day")
+    })
+  }
+
+  for (y in 2018:2025) {
+    local({
+      yy <- y
+      output[[paste0("avgProtests", yy)]] <- renderAvgBox(yy)
+    })
+  }
+
+  #### Most common month/day boxes ####
+  renderTopMonthBox <- function(y) {
+    renderValueBox({
+      m <- Mes_Protestas %>% filter(year == y) %>% pull(mes)
+      if (length(m) == 0) m <- NA
+      valueBox(value = as.character(m), subtitle = "month with most protests")
+    })
+  }
+
+  renderTopDayBox <- function(y) {
+    renderValueBox({
+      d <- Dias_Protestas %>% filter(year == y) %>% pull(dia_semana)
+      if (length(d) == 0) d <- NA
+      valueBox(value = as.character(d), subtitle = "most frequent protest weekday")
+    })
+  }
+
+  for (y in 2018:2025) {
+    local({
+      yy <- y
+      output[[paste0("mostCommonProtestMonthBox", yy)]] <- renderTopMonthBox(yy)
+      output[[paste0("mostCommonProtestDayBox", yy)]] <- renderTopDayBox(yy)
+    })
+  }
+
+  #### Dynamic box panel for a selected year (generic) ####
   output$yearSpecificBoxes <- renderUI({
-    year <- input$yearSelect
-    
-    if (year == "2018") {
-      tagList(fluidRow(column(
-        12, valueBoxOutput("totalProtests2018")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("avgProtests2018")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestMonthBox2018")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestDayBox2018")
-      )))
-    } else if (year == "2019") {
-      tagList(fluidRow(column(
-        12, valueBoxOutput("totalProtests2019")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("avgProtests2019")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestMonthBox2019")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestDayBox2019")
-      )))
-    } else if (year == "2020") {
-      tagList(fluidRow(column(
-        12, valueBoxOutput("totalProtests2020")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("avgProtests2020")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestMonthBox2020")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestDayBox2020")
-      )))
-    } else if (year == "2021") {
-      tagList(fluidRow(column(
-        12, valueBoxOutput("totalProtests2021")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("avgProtests2021")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestMonthBox2021")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestDayBox2021")
-      )))
-    } else if (year == "2022") {
-      tagList(fluidRow(column(
-        12, valueBoxOutput("totalProtests2022")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("avgProtests2022")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestMonthBox2022")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestDayBox2022")
-      )))
-    } else if (year == "2023") {
-      tagList(fluidRow(column(
-        12, valueBoxOutput("totalProtests2023")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("avgProtests2023")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestMonthBox2023")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestDayBox2023")
-      )))
-    } else if (year == "2024") {
-      tagList(fluidRow(column(
-        12, valueBoxOutput("totalProtests2024")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("avgProtests2024")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestMonthBox2024")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestDayBox2024")
-      )))
-    } else if (year == "2025") {
-      tagList(fluidRow(column(
-        12, valueBoxOutput("totalProtests2025")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("avgProtests2025")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestMonthBox2025")
-      )),
-      fluidRow(column(
-        12, valueBoxOutput("mostCommonProtestDayBox2025")
-      )))
-    }
+    y <- input$yearSelect
+    tagList(
+      fluidRow(column(12, valueBoxOutput(paste0("totalProtests", y)))),
+      fluidRow(column(12, valueBoxOutput(paste0("avgProtests", y)))),
+      fluidRow(column(12, valueBoxOutput(paste0("mostCommonProtestMonthBox", y)))),
+      fluidRow(column(12, valueBoxOutput(paste0("mostCommonProtestDayBox", y))))
+    )
   })
-  
+
+  #### Daily protests plot (plotly) ####
   output$dailyProtestsPlot <- renderPlotly({
     data <- Protestas %>%
-      mutate(
-        Fecha = as.Date(event_date, format = "%Y-%m-%d"),
-        Anio = year(Fecha),
-        Mes = month(Fecha),
-        Dia = day(Fecha)
-      ) %>%
-      group_by(Fecha, Anio) %>%
-      summarise(Cantidad_Protestas = n(), .groups = 'drop')
-    
-    p <-
-      ggplot(data, aes(x = Fecha, y = Cantidad_Protestas, group = Anio)) +
+      filter(!is.na(event_date), !is.na(year)) %>%
+      group_by(event_date, year) %>%
+      summarise(count = n(), .groups = "drop") %>%
+      rename(Fecha = event_date, Anio = year, Cantidad_Protestas = count)
+
+    p <- ggplot(data, aes(x = Fecha, y = Cantidad_Protestas, group = Anio)) +
       geom_line(color = "#F8766D") +
-      facet_grid(rows = vars(Anio)) +
-      facet_wrap(
-        ~ Anio,
-        scales = "free_x",
-        ncol = 2,
-        strip.position = "bottom"
-      ) +
+      facet_wrap(~Anio, scales = "free_x", ncol = 2, strip.position = "bottom") +
       theme_minimal() +
-      labs(title = "Protestas diarias agrupadas por año<br>",
-           x = NULL, y = NULL) +
+      labs(
+        title = "Daily protests by year<br>",
+        x = NULL, y = NULL
+      ) +
       scale_x_date(date_breaks = "1 month", date_labels = "%b") +
-      scale_y_continuous(breaks = seq(0, max(data$Cantidad_Protestas, na.rm = TRUE), by = 20)) +
+      scale_y_continuous(
+        breaks = seq(0, max(data$Cantidad_Protestas, na.rm = TRUE), by = 20)
+      ) +
       geom_point(
-        aes(
-          text = paste(
-            "Fecha:",
-            format(Fecha, "%d-%m-%Y"),
-            "<br>Cantidad de Protestas:",
-            Cantidad_Protestas
-          )
-        ),
-        size = 0.01,
-        alpha = 0,
-        color = "#F8766D"
+        aes(text = paste(
+          "Date:", format(Fecha, "%d-%m-%Y"),
+          "<br>Protests:", Cantidad_Protestas
+        )),
+        size = 0.01, alpha = 0, color = "#F8766D"
       ) +
       theme(
-        strip.text = element_text(
-          hjust = 0.5,
-          face = "bold",
-          size = 12
-        ),
+        strip.text = element_text(hjust = 0.5, face = "bold", size = 12),
         strip.background = element_rect(fill = "grey", colour = "grey"),
-        plot.title = element_text(
-          face = "bold",
-          colour = "#3C3C3C",
-          size = 20
-        ),
-        plot.margin = margin(
-          t = 30,
-          r = 10,
-          b = 10,
-          l = 10,
-          unit = "pt"
-        ),
+        plot.title = element_text(face = "bold", colour = "#3C3C3C", size = 20),
+        plot.margin = margin(t = 30, r = 10, b = 10, l = 10, unit = "pt"),
         panel.spacing = unit(1.5, "lines")
       )
-    
+
     ggplotly(p, tooltip = "text", height = 700)
   })
-  
+
+  #### Provinces plot ####
   output$provinciaPlot <- renderPlot({
     selected_year <- as.numeric(input$yearInputPcias)
-    
+
     data <- Resumen_Provincias %>% filter(year == selected_year)
-    
-    p_pcias <-
-      ggplot(data, aes(
-        x = reorder(provincia, porcentaje_pcia),
-        y = protestas_pcia,
-        fill = as.factor(year)
-      )) +
+
+    ggplot(data, aes(
+      x = reorder(provincia, porcentaje_pcia),
+      y = protestas_pcia,
+      fill = as.factor(year)
+    )) +
       geom_bar(stat = "identity", width = 0.7) +
-      scale_y_continuous(limits = c(0, 600)) +
       labs(
-        title = "Concentración de protestas por provincia",
-        subtitle = "Porcentajes sobre el total de observaciones registradas cada año \n",
-        caption = "\n CC By-NC-SA 4.0 marialasa.ar",
+        title = "Protest concentration by province",
+        subtitle = "Shares over total annual observations\n",
+        caption = "\n CC BY-NC-SA 4.0 marialasa.ar",
         x = NULL,
-        y = "\n Cantidad de protestas",
+        y = "\n Protest count"
       ) +
       coord_flip() +
-      geom_text(aes(label = paste0(round(
-        porcentaje_pcia, 2
-      ), "%")), hjust = -0.2, size = 4) +
-      theme_test() +
+      geom_text(aes(label = paste0(round(porcentaje_pcia, 2), "%")),
+                hjust = -0.2, size = 4) +
+      theme_minimal() +
       theme(
         axis.text.y = element_text(size = 12),
         axis.text.x = element_text(size = 12),
         axis.title.x = element_text(size = 14, face = "bold"),
-        legend.position = "None",
-        plot.title = element_text(
-          face = "bold",
-          colour = "#3C3C3C",
-          size = 22
-        ),
-        plot.subtitle = element_text(colour = "#838383",
-                                     size = 14),
-        plot.caption = element_text(
-          colour = "#838383",
-          size = 12,
-          hjust = 0,
-          margin = margin(r = 20)
-        ),
+        legend.position = "none",
+        plot.title = element_text(face = "bold", colour = "#3C3C3C", size = 22),
+        plot.subtitle = element_text(colour = "#838383", size = 14),
+        plot.caption = element_text(colour = "#838383", size = 12, hjust = 0,
+                                    margin = margin(r = 20)),
         plot.margin = unit(c(2, 2, 2, 2), "lines")
-      )
-    
-    p_pcias
-    
+      ) +
+      scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
   })
-  
+
+  #### Actors plot (Top 20 yearly) ####
   output$plotActores <- renderPlot({
-    Actores_Plot <- Protestas %>%
-      filter(year == as.numeric(input$yearInputActors)) %>%
-      separate_rows(assoc_actor_1, sep = "; ") %>%
-      mutate(assoc_actor_1 = trimws(assoc_actor_1)) %>%
-      mutate(assoc_actor_1 = replace(
-        assoc_actor_1,
-        assoc_actor_1 == "",
-        "Self-Organized Protesters"
-      )) %>%
-      mutate(
-        assoc_actor_1 = replace(
-          assoc_actor_1,
-          assoc_actor_1 == "UNTRA: National Union of Transport and Allied Workers of the Republic of Argentina",
-          "UNTRA"
-        )
-      ) %>%
-      mutate(
-        assoc_actor_1 = replace(
-          assoc_actor_1,
-          assoc_actor_1 == "CTEP: Confederation of Workers of the Popular Economy",
-          "CTEP"
-        )
-      ) %>%
-      mutate(
-        assoc_actor_1 = replace(
-          assoc_actor_1,
-          assoc_actor_1 == "UOCRA: Construction Workers' Union of Argentina",
-          "UOCRA"
-        )
-      ) %>%
-      mutate(
-        assoc_actor_1 = replace(
-          assoc_actor_1,
-          assoc_actor_1 == "CTERA: Confederation of Education Workers of the Republic of Argentina",
-          "CTERA"
-        )
-      ) %>%
-      mutate(
-        assoc_actor_1 = replace(
-          assoc_actor_1,
-          assoc_actor_1 == "CTA-A: Argentine Workers' Central Union - Autonomous",
-          "CTA Autonomous"
-        )
-      ) %>%
-      mutate(
-        assoc_actor_1 = replace(
-          assoc_actor_1,
-          assoc_actor_1 == "UTEP: Union of Workers of the Popular Economy",
-          "UTEP"
-        )
-      ) %>%
+    selected_year <- as.numeric(input$yearInputActors)
+
+    actores_plot <- Protestas_actores %>%
+      filter(year == selected_year) %>%
+      mutate(assoc_actor_1 = shorten_actor_names(assoc_actor_1)) %>%
       group_by(assoc_actor_1) %>%
-      summarise(total_protests = n()) %>%
+      summarise(total_protests = n(), .groups = "drop") %>%
       mutate(percentage = (total_protests / sum(total_protests)) * 100) %>%
       arrange(desc(total_protests))
-    
-    Top_20_Argentina <- Actores_Plot %>% top_n(20, total_protests)
-    
-    p_actors <-
-      ggplot(Top_20_Argentina, aes(
-        x = reorder(assoc_actor_1, total_protests),
-        y = total_protests
-      )) +
+
+    top_20 <- actores_plot %>% slice_max(total_protests, n = 20, with_ties = FALSE)
+
+    ggplot(top_20, aes(
+      x = reorder(assoc_actor_1, total_protests),
+      y = total_protests
+    )) +
       geom_bar(stat = "identity", fill = "#F8766D", width = 0.7) +
-      geom_text(
-        aes(label = paste0(round(percentage, 2), "%")),
-        hjust = -0.2,
-        color = "black",
-        size = 4
-      ) +
+      geom_text(aes(label = paste0(round(percentage, 2), "%")),
+                hjust = -0.2, color = "black", size = 4) +
       coord_flip() +
       scale_y_continuous(expand = expansion(add = c(20, 200))) +
       labs(
         x = NULL,
-        y = "\n Cantidad de protestas",
-        title = "Actores más activos en protestas sociales",
-        subtitle = "Top 20 anual \n",
-        caption = "\n CC By-NC-SA 4.0 marialasa.ar"
+        y = "\n Protest count",
+        title = "Most active actors in social protests",
+        subtitle = "Annual Top 20\n",
+        caption = "\n CC BY-NC-SA 4.0 marialasa.ar"
       ) +
-      theme_test() +
+      theme_minimal() +
       theme(
-        legend.position = "bottom",
-        legend.box = "vertical",
         axis.text.y = element_text(size = 12),
         axis.text.x = element_text(size = 12),
         axis.title.x = element_text(size = 14, face = "bold"),
-        plot.title = element_text(
-          face = "bold",
-          colour = "#3C3C3C",
-          size = 22
-        ),
-        plot.subtitle = element_text(colour = "#838383",
-                                     size = 14),
-        plot.caption = element_text(
-          colour = "#838383",
-          size = 12,
-          hjust = 0,
-          margin = margin(r = 20)
-        ),
+        plot.title = element_text(face = "bold", colour = "#3C3C3C", size = 22),
+        plot.subtitle = element_text(colour = "#838383", size = 14),
+        plot.caption = element_text(colour = "#838383", size = 12, hjust = 0,
+                                    margin = margin(r = 20)),
         plot.margin = unit(c(2, 2, 2, 2), "lines")
       )
-    
-    p_actors
   })
-  
+
+  #### Hotspots images (LISA maps stored in www/) ####
   output$dynamicImage <- renderImage({
     image_path <- switch(
       input$yearInputHotspots,
@@ -767,11 +536,11 @@ server <- function(input, output, session) {
       "2025" = "www/LISA_2025.png",
       NULL
     )
-    
+
     if (!is.null(image_path)) {
       list(
         src = image_path,
-        alt = paste("Mapa LISA", input$yearInputHotspots),
+        alt = paste("LISA map", input$yearInputHotspots),
         style = "margin-top: 20px;",
         width = "75%",
         height = "auto"
@@ -780,6 +549,5 @@ server <- function(input, output, session) {
   }, deleteFile = FALSE)
 }
 
-#### Play ####
-
+#### Run ####
 shinyApp(ui = ui, server = server)
